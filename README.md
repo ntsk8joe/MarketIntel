@@ -6,7 +6,7 @@
 
 ## 启动与日常使用
 
-双击 `start.command`，保持出现的终端窗口运行，然后打开 **http://127.0.0.1:8765**。首次运行会建立空数据库与知识库。启动脚本使用本机 Python，无需第三方运行包。macOS / Linux 可运行 start.command，Windows 可使用 start.bat。
+双击 `start.command`，保持出现的终端窗口运行，然后打开 [http://127.0.0.1:8765](http://127.0.0.1:8765)。首次运行会建立空数据库与知识库。启动脚本使用本机 Python，无需第三方运行包。macOS / Linux 可运行 start.command，Windows 可使用 start.bat。
 
 也可在项目目录使用 Python 3.9 或更新版本：
 
