@@ -152,4 +152,6 @@ python3 -m unittest discover -s tests -v
 
 ## 开源发布
 
+公开仓库：[ntsk8joe/MarketIntel](https://github.com/ntsk8joe/MarketIntel)。
+
 代码采用 MIT，参见 `LICENSE`。运行 `python3 tools/prepare_release.py` 可生成只含白名单源码的 ZIP；详情见 [开源发布指南](docs/开源发布指南.md)。`.gitignore` 排除用户凭据、数据库、知识库、原始文件与备份，但不会移除已经进入 Git 历史的敏感内容。
