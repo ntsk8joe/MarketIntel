@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>MarketIntel · 情报与决策工作台</title><link rel="stylesheet" href="/tokens.css"><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head>
+<body>
+<a class="skip" href="#content">跳到研究内容</a>
+<aside class="sidebar">
+ <a class="brand" href="#desk"><span class="brand-mark" aria-hidden="true">M</span><span>MarketIntel<small>情报与决策工作台</small></span></a>
+ <div class="scope"><label for="project-filter">当前研究方向</label><select id="project-filter"><option value="">全部方向</option></select><button class="text-button" data-action="new" data-kind="project">新建研究方向</button></div>
+ <nav aria-label="工作台"><a href="#desk" data-view="desk">研究桌面</a><a href="#evidence" data-view="evidence">证据与痛点</a><a href="#sources" data-view="sources">来源与追踪</a><a href="#competitors" data-view="competitors">竞品比较</a><a href="#opportunities" data-view="opportunities">机会与验证</a><a href="#knowledge" data-view="knowledge">知识库检索</a><a href="#history" data-view="history">决策与历史</a><a href="#settings" data-view="settings">数据与连接</a></nav>
+ <div class="local-note"><span class="dot" aria-hidden="true"></span>本地保存<small>证据先于判断，成交检验假设。</small></div>
+</aside>
+<div class="workspace">
+ <header class="topbar"><span id="breadcrumb">研究桌面</span><button id="search-open" class="search-button"><span>检索已有情报</span><kbd>⌘ K</kbd></button><span class="top-status" id="top-status">正在读取本地资料</span></header>
+ <main id="content" tabindex="-1"><div class="loading">正在读取研究档案…</div></main>
+ <footer>MarketIntel / 本地研究档案 <span>未知数据保留为空，结论附带依据。</span></footer>
+</div>
+<dialog id="editor" aria-labelledby="editor-title"><form id="record-form"><header class="dialog-head"><h2 id="editor-title">新增记录</h2><button type="button" class="plain" data-action="close-dialog" aria-label="关闭编辑">关闭</button></header><div id="form-fields"></div><p id="form-error" role="alert"></p><div class="dialog-actions"><button type="button" data-action="close-dialog">取消</button><button type="submit" class="primary" id="save-record">保存到档案与知识库</button></div></form></dialog>
+<dialog id="reader" aria-labelledby="reader-title"><header class="dialog-head"><h2 id="reader-title">资料详情</h2><button data-action="close-reader">关闭</button></header><div id="reader-content"></div></dialog>
+<dialog id="search-dialog" aria-labelledby="search-title"><header class="dialog-head"><h2 id="search-title">检索历史与反证</h2><button data-action="close-search">关闭</button></header><label class="sr-only" for="search-input">搜索知识库</label><input id="search-input" type="search" placeholder="例如 CSV、客户资料、定价、已解决"><div id="search-results"><p class="hint">输入具体任务，找到已有结论和反证。支持键盘上下选择与回车打开。</p></div></dialog>
+<div id="notice" role="status" aria-live="polite" hidden></div>
+</body></html>

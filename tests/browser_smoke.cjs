@@ -1,0 +1,124 @@
+// UI fixtures run in a temporary data directory and never modify the real vault.
+const {chromium} = require('playwright');
+const {spawn,spawnSync} = require('node:child_process');
+const fs = require('node:fs');
+const path = require('node:path');
+const os = require('node:os');
+const assert = require('node:assert/strict');
+
+(async () => {
+ const root = path.resolve(__dirname,'..');
+ const testRoot = fs.mkdtempSync(path.join(os.tmpdir(),'marketintel-ui-'));
+ const outputs = path.join(root,'docs','ui-artifacts'); fs.mkdirSync(outputs,{recursive:true});
+ const testEnvironment={...process.env};
+ for(const key of ['APIFY_TOKEN','DATAFORSEO_LOGIN','DATAFORSEO_PASSWORD','OPENROUTER_API_KEY','OPENROUTER_MODEL'])delete testEnvironment[key];
+ const fixture = spawnSync(process.env.MARKETINTEL_PYTHON || (process.platform==='win32'?'python':'python3'),['-c',"import sys; from marketintel.core import Store; from marketintel.seed import seed; s=Store(sys.argv[1]); seed(s); source=s.save('source','UI provenance source','project-shopify-csv',{'url':'https://example.com/provenance'}); s.add_snapshot(source,'UI provenance snapshot','UI raw fixture','https://example.com/provenance','text/plain'); a=s.save('source','UI uncertain Actor','project-shopify-csv',{'type':'apify','actor_id':'test/actor','max_charge':1,'allow_apify':True}); s.job(a['id'],'error',result={'start_uncertain':True})",testRoot],{cwd:root,env:testEnvironment,encoding:'utf8'});
+ assert.equal(fixture.status,0,fixture.stderr);
+ const child = spawn(process.env.MARKETINTEL_PYTHON || (process.platform==='win32'?'python':'python3'), [path.join(root,'app.py'),'--data-root',testRoot,'--port','8766','--demo'],{stdio:['ignore','pipe','pipe'],env:testEnvironment});
+ let log='';child.stdout.on('data', x=>log+=x);child.stderr.on('data', x=>log+=x);
+ let browser;
+ try {
+  await new Promise((resolve,reject)=>{const timer=setInterval(()=>{if(log.includes('已启动')){clearInterval(timer);clearTimeout(timeout);resolve();}else if(child.exitCode!==null){clearInterval(timer);clearTimeout(timeout);reject(new Error(log));}},100);const timeout=setTimeout(()=>{clearInterval(timer);reject(new Error('测试服务未启动：'+log));},10000);});
+  const installedChrome=process.env.MARKETINTEL_CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+  browser=await chromium.launch({headless:true,...(fs.existsSync(installedChrome)?{executablePath:installedChrome}:{})});
+  const page=await browser.newPage({viewport:{width:1440,height:1000}});
+  const errors=[];page.on('pageerror',e=>errors.push(e.message));
+  await page.goto('http://127.0.0.1:8766');
+  await page.locator('.metric-band').waitFor();
+  await page.screenshot({path:path.join(outputs,'desktop-desk.png'),fullPage:true});
+  const views=['desk','evidence','sources','competitors','opportunities','knowledge','history','settings'];
+  const widthResults=[];
+  for(const width of [1440,768,414,375,320]){
+   await page.setViewportSize({width,height:1000});
+   for(const view of views){
+    await page.locator(`nav a[data-view="${view}"]`).click();
+    await page.waitForFunction(view=>document.querySelector('nav a.active')?.dataset.view===view,view);
+    await page.locator('#content h1').waitFor();
+    const overflow=await page.evaluate(()=>({viewport:innerWidth,document:document.documentElement.scrollWidth,main:document.querySelector('main').getBoundingClientRect().right}));
+    assert(overflow.document<=width&&overflow.main<=width+1,`${width} ${view} 页面溢出：${JSON.stringify(overflow)}`);
+   }
+   widthResults.push({width,views:views.length,overflow:false});
+   const capture=await page.screenshot({...(width===375?{path:path.join(outputs,'mobile-settings.png')}:{}),fullPage:true});
+   assert.equal(capture.readUInt32BE(16),width,`${width} 像素截图包含画布外内容`);
+  }
+  await page.setViewportSize({width:1440,height:1000});
+  await page.locator('nav a[data-view="sources"]').click();
+  await page.locator('tr').filter({hasText:'UI provenance source'}).locator('[data-action="snapshot"]').click();
+  await page.locator('[data-action="snapshot-evidence"]').click();
+  await page.locator('#save-record').click();await page.waitForFunction(()=>!document.querySelector('#editor').open);
+  const provenance=await page.evaluate(async()=>{const s=await(await fetch('/api/state')).json();return s.records.find(x=>x.kind==='evidence'&&x.name==='快照证据：UI provenance source');});
+  assert(provenance.data.source_id&&provenance.data.snapshot_id,'从快照创建证据时丢失来源关联');
+  const xssName='<img src=x onerror="window.fixtureXss=true">';
+  await page.evaluate(async name=>{const s=await(await fetch('/api/state')).json();await fetch('/api/records',{method:'POST',headers:{'Content-Type':'application/json','X-MarketIntel-Token':s.csrf},body:JSON.stringify({kind:'evidence',name,project_id:'project-shopify-csv',data:{summary:name}})});},xssName);
+  await page.reload();await page.locator('nav a[data-view="evidence"]').click();
+  await page.locator('#content td.title').filter({hasText:xssName}).waitFor();
+  assert.equal(await page.evaluate(()=>window.fixtureXss),undefined);
+  assert.equal(await page.locator('#content td.title img').count(),0);
+  await page.locator('#project-filter').selectOption('');
+  await page.locator('nav a[data-view="sources"]').click();
+  await page.locator('tr').filter({hasText:'UI uncertain Actor'}).locator('[data-action="collect"]').click();
+  assert.equal(await page.locator('[data-action="confirmed-collect"]').isDisabled(),true);
+  await page.locator('#paid-retry-confirm').check();
+  assert.equal(await page.locator('[data-action="confirmed-collect"]').isDisabled(),false);
+  await page.keyboard.press('Escape');
+  await page.route('**/api/search?*',async route=>{const q=new URL(route.request().url()).searchParams.get('q');if(!['stale_query','fresh_query'].includes(q))return route.continue();if(q==='stale_query')await new Promise(resolve=>setTimeout(resolve,650));await route.fulfill({json:[{path:q+'.md',excerpt:q,score:1}]});});
+  await page.keyboard.press('Control+k');
+  const oldResponse=page.waitForResponse(r=>new URL(r.url()).searchParams.get('q')==='stale_query');
+  const oldRequest=page.waitForRequest(r=>new URL(r.url()).searchParams.get('q')==='stale_query');
+  await page.locator('#search-input').fill('stale_query');await oldRequest;
+  await page.locator('#search-input').fill('fresh_query');
+  await page.locator('#search-results strong').filter({hasText:'fresh_query'}).waitFor();
+  await oldResponse;await page.waitForTimeout(100);
+  assert.equal(await page.locator('#search-results strong').first().textContent(),'fresh_query.md','旧检索响应覆盖了最新结果');
+  await page.locator('[data-action="close-search"]').click();await page.unroute('**/api/search?*');
+  await page.locator('nav a[data-view="opportunities"]').click();
+  await page.screenshot({path:path.join(outputs,'desktop-opportunities.png'),fullPage:true});
+  // From ALL projects, an action must select the clicked opportunity's project.
+  const target=page.locator('[data-action="trial"][data-id="opportunity-shopify-csv"]');await target.click();
+  assert.equal(await page.locator('#record-project').inputValue(),'project-shopify-csv');
+  assert.equal(await page.locator('[name="opportunity_id"]').inputValue(),'opportunity-shopify-csv');
+  await page.locator('[name="payment"]').fill('25');await page.locator('[name="cost"]').fill('5');
+  await page.locator('[name="outcome"]').fill('仅在临时库中运行的界面验收数据');
+  await page.locator('#save-record').click();await page.waitForFunction(()=>!document.querySelector('#editor').open);
+  assert((await page.locator('.opportunity-side').allTextContents()).some(x=>x.includes('1 次')));
+  await page.locator('[data-action="decision"][data-id="opportunity-shopify-csv"]').click();
+  await page.locator('[name="reason"]').fill('临时验收：记录依据与下一步');await page.locator('#save-record').click();
+  await page.waitForFunction(()=>!document.querySelector('#editor').open);
+  await page.locator('nav a[data-view="history"]').click();await page.locator('#content p').filter({hasText:'临时验收：记录依据与下一步'}).waitFor();
+  await page.locator('nav a[data-view="evidence"]').click();await page.locator('[data-action="import"]').click();
+  await page.locator('#import-text').fill(JSON.stringify([{name:'UI 验收证据',url:'https://example.com/test',summary:'仅用于界面测试',review_status:'verified'}]));
+  await page.locator('[data-action="run-import"]').click();await page.locator('#action-result').filter({hasText:'导入 1 条'}).waitFor();
+  await page.locator('[data-action="close-reader"]').click();
+  await page.locator('#content td.title').filter({hasText:'UI 验收证据'}).waitFor();
+  await page.locator('#evidence-status').selectOption('verified');assert.equal(await page.locator('tr[data-review]:visible').count(),0);
+  await page.locator('#evidence-status').selectOption('pending');assert((await page.locator('tr[data-review]:visible').count())>0);
+  await page.keyboard.press('Control+k');await page.locator('#search-input').fill('UI 验收');
+  await page.locator('#search-results .search-hit').first().waitFor();await page.keyboard.press('ArrowDown');await page.keyboard.press('Enter');
+  await page.locator('#reader[open]').waitFor();assert((await page.locator('#reader-content').textContent()).includes('仅用于界面测试'));
+  await page.keyboard.press('Escape');
+  // A failed optional connection must produce a clear recoverable state.
+  await page.locator('nav a[data-view="settings"]').click();await page.locator('[data-action="ai"]').click();
+  await page.locator('[data-action="run-ai"]').click();await page.locator('#action-result').filter({hasText:'请配置'}).waitFor();
+  await page.keyboard.press('Escape');
+  const fixtureKey='browser-fixture-private-value';
+  await page.locator('#key-APIFY_TOKEN').fill(fixtureKey);
+  await page.locator('#connection-form [type="submit"]').click();
+  await page.locator('#notice').filter({hasText:'连接配置已保存在本机'}).waitFor();
+  assert.equal(await page.locator('#key-APIFY_TOKEN').inputValue(),'');
+  const connected=await page.evaluate(async()=>await (await fetch('/api/state')).json());
+  assert.equal(connected.connections.apify,true);
+  assert(!JSON.stringify(connected).includes(fixtureKey));
+  assert.equal(await page.evaluate(()=>localStorage.length),0);
+  await page.reload();await page.locator('#connection-form').waitFor();
+  assert.equal(await page.locator('#key-APIFY_TOKEN').inputValue(),'');
+  await page.locator('[data-action="clear-connection"][data-keys="APIFY_TOKEN"]').click();
+  await page.locator('#notice').filter({hasText:'已清除此连接'}).waitFor();
+  const cleared=await page.evaluate(async()=>await (await fetch('/api/state')).json());
+  assert.equal(cleared.connections.apify,false);
+  await page.screenshot({path:path.join(outputs,'desktop-connections.png'),fullPage:true});
+  await page.locator('[data-action="backup"]').click();await page.locator('#notice').filter({hasText:'备份已创建'}).waitFor();
+  assert.equal(errors.length,0,errors.join('\n'));
+  fs.writeFileSync(path.join(outputs,'browser-results.json'),JSON.stringify({checkedAt:new Date().toISOString(),widthResults,checks:['快照证据保留来源与快照关联','恶意 HTML 按文字显示','不确定收费任务需核查确认','旧检索响应不覆盖最新结果','项目关联','实际收款保存','决策保存','证据导入保持待审','审核筛选','键盘搜索并打开笔记','缺失 API 配置反馈','一致性备份','界面保存自己的凭据且不回显','重新载入仍不回显','清除连接'],pageErrors:errors},null,2));
+  console.log(JSON.stringify({status:'passed',widthResults,checks:15,screenshots:outputs,testRoot},null,2));
+ } finally {if(browser)await browser.close();child.kill('SIGTERM');}
+})().catch(e=>{console.error(e);process.exitCode=1;});
